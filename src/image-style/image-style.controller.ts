@@ -31,15 +31,25 @@ export class ImageStyleController {
     @UploadedFile() file: Express.Multer.File,
     @Body() body: { style: string },
   ) {
-    const imageUrl = await this.imageStyleService.paintImage(
-      body.style,
-      file.path,
-    );
-
-    return {
-      message: 'Image styled successfully',
-      style: body.style,
-      resultUrl: imageUrl,
-    };
+    try {
+      const imageUrl = await this.imageStyleService.paintImage(
+        body.style,
+        file.path,
+      );
+  
+      return {
+        message: 'Image styled successfully',
+        style: body.style,
+        resultUrl: imageUrl,
+      };
+    } catch (error) {
+      console.error('[uploadImage] Error:', error);
+  
+      return {
+        message: 'Failed to style image',
+        error: error?.message || 'Unknown error',
+      };
+    }
   }
+  
 }
