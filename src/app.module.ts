@@ -7,5 +7,6 @@ import { ImageStyleModule } from './image-style/image-style.module';
   imports: [ImageStyleModule],
   controllers: [AppController],
   providers: [AppService],
+  
 })
 export class AppModule {}
