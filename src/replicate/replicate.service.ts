@@ -6,7 +6,11 @@ import { v4 as uuidv4 } from 'uuid';
 @Injectable()
 export class ReplicateService {
   private s3 = new S3Client({
-
+    region: process.env.AWS_REGION,
+    credentials: {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? 'AKIAYNDNTI3IE5MWEPMO',
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? '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'
+    },
   });
 
   async uploadToS3(file: Express.Multer.File): Promise<string> {
