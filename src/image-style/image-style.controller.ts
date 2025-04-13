@@ -29,17 +29,17 @@ export class ImageStyleController {
   )
   async uploadImage(
     @UploadedFile() file: Express.Multer.File,
-    @Body() body: { style: string },
+    @Body() body: { description: string },
   ) {
     try {
       const imageUrl = await this.imageStyleService.paintImage(
-        body.style,
+        body.description,
         file.path,
       );
   
       return {
         message: 'Image styled successfully',
-        style: body.style,
+        style: body.description,
         resultUrl: imageUrl,
       };
     } catch (error) {

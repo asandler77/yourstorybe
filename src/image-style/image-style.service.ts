@@ -18,17 +18,18 @@ export class ImageStyleService {
   
 
 
-  async paintImage(style: string, imagePath: string): Promise<string> {
-    console.log('paintImage:======', style);
+  async paintImage(description: string, imagePath: string): Promise<string> {
+    console.log('paintImage:======', description);
     const convertedImagePath = await this.convertToPngWithAlpha(imagePath);
-    const maskPath = await this.createFullTransparentMask(convertedImagePath);
+    const maskPath = await this.createFullTransparentMask(convertedImagePath); // Create the mask!
 
-  
-
-    const response = await this.openai.images.createVariation({
+    const response = await this.openai.images.edit({
       image: fs.createReadStream(convertedImagePath),
+      mask: fs.createReadStream(maskPath), // Pass the mask here!  This is CRITICAL.
+      prompt: description,
       n: 1,
       size: '512x512',
+      response_format: 'url',
     });
   
     const imageUrl = response.data[0]?.url;
@@ -47,43 +48,41 @@ export class ImageStyleService {
       writer.on('error', reject);
     });
   
+    fs.unlinkSync(maskPath); // Clean up the mask file!
     fs.unlinkSync(convertedImagePath);
   
     return `/ai-image/${filename}`;
   }
   
-
-
-
-  private async convertToPngWithAlpha(originalPath: string): Promise<string> {
-    const outputName = `${Date.now()}-${Math.floor(Math.random() * 1000)}-converted.png`;
-    const outputPath = path.join(path.dirname(originalPath), outputName);
-    
-    await sharp(originalPath)
-      .ensureAlpha()
-      .toColourspace('rgba')
-      .resize(512, 512)
-      .png({ palette: false })
-      .toFile(outputPath);
-
-    return outputPath;
+  private async convertToPngWithAlpha(imagePath: string): Promise<string> {
+    const pngPath = imagePath.replace(/\.(jpg|jpeg)$/i, '.png');
+     try {
+        await sharp(imagePath)
+        .ensureAlpha() // Make sure it has an alpha channel
+        .png()
+        .toFile(pngPath);
+      return pngPath;
+     } catch(error){
+       console.error("Error in convertToPngWithAlpha", error);
+       throw error; // rethrow the error
+     }
   }
 
-  private async createFullTransparentMask(fromPath: string): Promise<string> {
-    const maskPath = fromPath.replace('.png', '-mask.png');
+  private async createFullTransparentMask(imagePath: string): Promise<string> {
+    const maskName = `${Date.now()}-${Math.floor(Math.random() * 1000)}-mask.png`;
+    const maskPath = path.join(path.dirname(imagePath), maskName);
 
-    const { width, height } = await sharp(fromPath).metadata();
-
+    // Create a fully transparent black image (the mask)
     await sharp({
-      create: {
-        width: width || 512,
-        height: height || 512,
-        channels: 4 as 4,
-        background: { r: 255, g: 255, b: 255, alpha: 1 },
-      },
+        create: {
+            width: 512,
+            height: 512,
+            channels: 4,
+            background: { r: 0, g: 0, b: 0, alpha: 0 }, // Fully transparent black
+        }
     })
-      .png()
-      .toFile(maskPath);
+    .png()
+    .toFile(maskPath);
 
     return maskPath;
   }
