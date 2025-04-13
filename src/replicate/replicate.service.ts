@@ -12,6 +12,7 @@ export class ReplicateService {
       secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? ''
     },
   });
+  
 
   async uploadToS3(file: Express.Multer.File): Promise<string> {
     const key = `uploads/${uuidv4()}-${file.originalname}`;
