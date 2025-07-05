@@ -1,45 +1,106 @@
-// File: replicate.service.ts
+// src/replicate/replicate.service.ts
 import { Injectable } from '@nestjs/common';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-import { v4 as uuidv4 } from 'uuid';
+import * as FormData from 'form-data';
+import fetch from 'node-fetch';
 
 @Injectable()
 export class ReplicateService {
-  private s3 = new S3Client({
-    region: process.env.AWS_REGION,
-    credentials: {
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? '',
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? ''
-    },
-  });
+  private replicateApiToken = process.env.REPLICATE_API_TOKEN;
+
+  async uploadToTmpFiles(file: Express.Multer.File): Promise<string> {
+    const form = new FormData();
+    form.append('file', file.buffer, file.originalname);
+  
+    const res = await fetch('https://tmpfiles.org/api/v1/upload', {
+      method: 'POST',
+      body: form as any,
+    });
+  
+    const json = await res.json() as { data: { url: string } };
+  
+    if (!json.data?.url) {
+      throw new Error(`tmpfiles.org upload error: ${JSON.stringify(json)}`);
+    }
+  
+    return json.data.url; // это публичный URL
+  }
   
 
-  async uploadToS3(file: Express.Multer.File): Promise<string> {
-    const key = `uploads/${uuidv4()}-${file.originalname}`;
-    await this.s3.send(
-      new PutObjectCommand({
-        Bucket: process.env.AWS_BUCKET_NAME,
-        Key: key,
-        Body: file.buffer,
-        ContentType: file.mimetype,
-        ACL: 'public-read',
-      })
-    );
-    return `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+async runInferenceWithImage({
+  file,
+  prompt,
+}: {
+  file: Express.Multer.File;
+  prompt: string;
+}) {
+  console.log('Run FLUX Kontext Pro');
+
+  // 🔵 1) Загружаем файл
+  const imageUrl = await this.uploadToTmpFiles(file);
+
+  // ✅ Обязательно прямая HTTPS dl-ссылка!
+  const finalImageUrl = imageUrl.replace(
+    'http://tmpfiles.org/',
+    'https://tmpfiles.org/dl/'
+  );
+
+  // 🔵 2) Запускаем генерацию
+  const res = await fetch('https://api.replicate.com/v1/predictions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Token ${this.replicateApiToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      version:
+        '0f1178f5a27e9aa2d2d39c8a43c110f7fa7cbf64062ff04a04cd40899e546065',
+      input: {
+        input_image: finalImageUrl,
+        prompt:
+          prompt ||
+          'Turn this photo into a colorful cartoon style illustration, smooth lines, vivid colors, clear outlines, looks like a hand-drawn animation character.',
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(`Replicate error: ${JSON.stringify(error)}`);
   }
 
-  async runInference(data: {
-    version: string;
-    input: Record<string, any>;
-  }) {
-    const response = await fetch('https://api.replicate.com/v1/predictions', {
-      method: 'POST',
+  const prediction = await res.json() as any;
+  console.log('Prediction started, ID:', prediction.id);
+
+  const getUrl = prediction.urls.get;
+
+  // 🔵 3) Поллинг
+  let status = prediction.status;
+  let output = null;
+
+  while (
+    status !== 'succeeded' &&
+    status !== 'failed' &&
+    status !== 'canceled'
+  ) {
+    console.log(`Status: ${status}...`);
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+
+    const pollRes = await fetch(getUrl, {
       headers: {
-        Authorization: `Token ${process.env.REPLICATE_API_TOKEN}`,
-        'Content-Type': 'application/json',
+        Authorization: `Token ${this.replicateApiToken}`,
       },
-      body: JSON.stringify(data),
     });
-    return response.json();
+    const pollJson = await pollRes.json() as any;
+    status = pollJson.status;
+    output = pollJson.output;
   }
-}  
+
+  if (status === 'succeeded') {
+    console.log('✅ Final output:', output);
+    return output;
+  } else {
+    throw new Error(`Replicate generation failed with status: ${status}`);
+  }
+}
+
+}
